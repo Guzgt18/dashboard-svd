@@ -16,8 +16,10 @@ SCOPES = [
 
 creds_env = os.environ.get("GOOGLE_CREDENTIALS")
 if creds_env:
+    print("Usando credenciais do ambiente (Render)")
     creds = Credentials.from_service_account_info(json.loads(creds_env), scopes=SCOPES)
 else:
+    print("Usando arquivo local de credenciais")
     creds = Credentials.from_service_account_file(
         "dashpython-494416-f473e55aca52.json", scopes=SCOPES
     )
@@ -26,38 +28,49 @@ gc_client = gspread.authorize(creds)
 
 # ── 2. Leitura otimizada da planilha ─────────────────────────
 def carregar_dados():
-    worksheet = gc_client.open_by_key(
-        "1mGQWM8CCBeNy8TdupA7OMR8kNerWQiRQ1X8TEm97mG0"
-    ).worksheet("VOL. VENDAS GERAL")
+    try:
+        print("Iniciando conexão com Google Sheets...")
+        worksheet = gc_client.open_by_key(
+            "1mGQWM8CCBeNy8TdupA7OMR8kNerWQiRQ1X8TEm97mG0"
+        ).worksheet("VOL. VENDAS GERAL")
 
-    # Busca apenas as colunas necessárias
-    dados = worksheet.get_all_values()
-    headers = dados[0]
-    
-    colunas_necessarias = ["DATA", "ANO_MÊS", "CLIENTE", "DESCRIÇÃO", "ATIVO", "QTD", "LARGURA"]
-    indices = {col: headers.index(col) for col in colunas_necessarias if col in headers}
-    
-    rows = []
-    for row in dados[1:]:
-        rows.append({col: row[idx] for col, idx in indices.items()})
-    
-    df = pd.DataFrame(rows)
-    df["QTD"] = pd.to_numeric(df["QTD"], errors="coerce").fillna(0)
-    df = df[df["ATIVO"] == "S"].copy()
-    df["ANO"] = df["ANO_MÊS"].str[:4]
-    df["MES"] = df["ANO_MÊS"].str[5:]
-    
-    gc.collect()
-    return df
+        print("Planilha aberta com sucesso!")
+        dados = worksheet.get_all_values()
+        print(f"Total de linhas: {len(dados)}")
+
+        headers = dados[0]
+        print(f"Colunas encontradas: {headers}")
+
+        colunas_necessarias = ["DATA", "ANO_MÊS", "CLIENTE", "DESCRIÇÃO", "ATIVO", "QTD", "LARGURA"]
+        indices = {col: headers.index(col) for col in colunas_necessarias if col in headers}
+        print(f"Índices mapeados: {indices}")
+
+        rows = []
+        for row in dados[1:]:
+            rows.append({col: row[idx] for col, idx in indices.items()})
+
+        df = pd.DataFrame(rows)
+        df["QTD"] = pd.to_numeric(df["QTD"], errors="coerce").fillna(0)
+        df = df[df["ATIVO"] == "S"].copy()
+        df["ANO"] = df["ANO_MÊS"].str[:4]
+        df["MES"] = df["ANO_MÊS"].str[5:]
+
+        print(f"Dados carregados: {len(df)} linhas")
+        gc.collect()
+        return df
+
+    except Exception as e:
+        print(f"ERRO ao carregar dados: {e}")
+        return pd.DataFrame(columns=["DATA","ANO_MÊS","CLIENTE","DESCRIÇÃO","ATIVO","QTD","LARGURA","ANO","MES"])
 
 df_raw = carregar_dados()
 
-anos_disp     = sorted(df_raw["ANO"].unique())
+anos_disp     = sorted(df_raw["ANO"].unique()) if not df_raw.empty else ["2024"]
 meses_disp    = ["01","02","03","04","05","06","07","08","09","10","11","12"]
 nomes_mes     = {"01":"Janeiro","02":"Fevereiro","03":"Março","04":"Abril",
                  "05":"Maio","06":"Junho","07":"Julho","08":"Agosto",
                  "09":"Setembro","10":"Outubro","11":"Novembro","12":"Dezembro"}
-clientes_disp = sorted(df_raw["CLIENTE"].unique())
+clientes_disp = sorted(df_raw["CLIENTE"].unique()) if not df_raw.empty else []
 
 # ── 3. App ───────────────────────────────────────────────────
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
