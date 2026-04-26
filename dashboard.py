@@ -21,7 +21,7 @@ if creds_env:
 else:
     print("Usando arquivo local de credenciais")
     creds = Credentials.from_service_account_file(
-        "dashpython-494416-f473e55aca52.json", scopes=SCOPES
+        "dashpython-494416-dddeafb9a87e.json", scopes=SCOPES
     )
 
 gc_client = gspread.authorize(creds)
@@ -213,4 +213,3 @@ def atualizar(ano_ini, mes_ini, ano_fim, mes_fim, clientes_sel):
 
 if __name__ == "__main__":
     app.run(debug=False)
-    
