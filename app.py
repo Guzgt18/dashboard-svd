@@ -74,42 +74,16 @@ with st.spinner("Carregando dados..."):
 
 # ── 5. Navegação por páginas ─────────────────────────────────
 st.sidebar.title("📊 SVD Dashboard")
-# ── Atualização de dados ─────────────────────────────────────
-# ── Atualização de dados ─────────────────────────────────────
-from streamlit_autorefresh import st_autorefresh
-
-st.sidebar.divider()
-st.sidebar.markdown("**🔄 Atualização dos dados**")
-
-if st.sidebar.button("🔄 Atualizar agora"):
-    st.cache_data.clear()
-    st.rerun()
-
-intervalo = st.sidebar.selectbox(
-    "⏱️ Atualizar automaticamente",
-    options=[0, 5, 15, 30, 60],
-    format_func=lambda x: "Desativado" if x == 0 else f"A cada {x} minutos",
-    index=0
-)
-
-if intervalo > 0:
-    st_autorefresh(interval=intervalo * 60 * 1000, key="autorefresh")
-    st.sidebar.caption(f"🟢 Atualizando a cada {intervalo} min")
-
-st.sidebar.divider()
-
 st.sidebar.divider()
 pagina = st.sidebar.radio("Navegar", ["🏠 Visão Geral", "👥 Clientes", "📦 Produtos"])
 
 # ── 6. Filtros globais ───────────────────────────────────────
 st.sidebar.divider()
 st.sidebar.markdown("**🔍 Filtros**")
-
-anos = sorted(df_raw["ANO"].unique())
-meses = {"01":"Janeiro","02":"Fevereiro","03":"Março","04":"Abril",
+anos = sorted(df_raw["ANO"].unique())   # ← adicionar
+meses = {"01":"Janeiro","02":"Fevereiro","03":"Março","04":"Abril",  # ← adicionar
          "05":"Maio","06":"Junho","07":"Julho","08":"Agosto",
          "09":"Setembro","10":"Outubro","11":"Novembro","12":"Dezembro"}
-
 col1, col2 = st.sidebar.columns(2)
 ano_ini = col1.selectbox("De (Ano)", anos, index=0)
 mes_ini = col2.selectbox("De (Mês)", list(meses.keys()), format_func=lambda x: meses[x], index=0)
@@ -119,6 +93,22 @@ ano_fim = col3.selectbox("Até (Ano)", anos, index=len(anos)-1)
 mes_fim = col4.selectbox("Até (Mês)", list(meses.keys()), format_func=lambda x: meses[x], index=11)
 
 cliente_sel = st.sidebar.multiselect("🏢 Cliente", sorted(df_raw["CLIENTE"].unique()), placeholder="Todos")
+
+# ── Atualização de dados (oculta por padrão) ─────────────────
+with st.sidebar.expander("🔄 Atualização dos dados"):
+    if st.button("🔄 Atualizar agora", key="btn_atualizar"):
+        st.cache_data.clear()
+        st.rerun()
+    intervalo = st.selectbox(
+        "⏱️ Atualizar automaticamente",
+        options=[0, 5, 15, 30, 60],
+        format_func=lambda x: "Desativado" if x == 0 else f"A cada {x} minutos",
+        index=0,
+        key="sel_intervalo"
+    )
+    if intervalo > 0:
+        st_autorefresh(interval=intervalo * 60 * 1000, key="autorefresh")
+        st.caption(f"🟢 Atualizando a cada {intervalo} min")
 
 # Filtragem base
 period_ini = f"{ano_ini}-{mes_ini}"
