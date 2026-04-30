@@ -174,8 +174,8 @@ def carregar_dados():
         creds = Credentials.from_service_account_info(json.loads(creds_env), scopes=SCOPES)
     else:
         creds = Credentials.from_service_account_file(
-            "dashpython-494416-9b3188e05fdf", scopes=SCOPES
-        )
+    r"C:\Users\gusgt\credentials\dashpython-494416-4c76af5b36c4.json", scopes=SCOPES
+)
 
     gc = gspread.authorize(creds)
     worksheet = gc.open_by_key(
