@@ -11,41 +11,98 @@ import json
 import os
 import re
 import urllib.request
-import json as json_lib
 from streamlit_autorefresh import st_autorefresh
 
-# ── 1. Configuração da página ────────────────────────────────
+# ── 1. CONFIGURAÇÃO DA PÁGINA (Deve ser o primeiro comando Streamlit) ──
 st.set_page_config(
     page_title="Dashboard de Vendas SVD",
     page_icon="📊",
     layout="wide"
 )
 
-# ── 2. CSS customizado ───────────────────────────────────────
-# Injeta CSS para estilizar os cards de métrica.
-# unsafe_allow_html=True é necessário para injetar HTML/CSS puro.
-# Os seletores foram testados para tema escuro do Streamlit.
+# ── 2. USUÁRIOS E CONTROLE DE ACESSO ─────────────────────────
+USERS = {
+    "Gustavo.Oliveira":    {"senha": "1232026*", "nome": "Gustavo"},
+    "Alessandro.Rodrigues":{"senha": "1232026@", "nome": "Alessandro"},
+}
+
+def login_form():
+    with st.form("login_form"):
+        st.subheader("🔐 Acesso ao Sistema PCP")
+        user_input = st.text_input("Usuário")
+        pass_input = st.text_input("Senha", type="password")
+        submit = st.form_submit_button("Entrar")
+        if submit:
+            if user_input in USERS and USERS[user_input]["senha"] == pass_input:
+                st.session_state["logged_in"] = True
+                st.session_state["user_name"] = USERS[user_input]["nome"]
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos")
+
+# Se não estiver logado: mostra login e PARA aqui — nada mais executa
+if not st.session_state.get("logged_in", False):
+    login_form()
+    st.stop()
+
+# ── 3. FUNÇÕES DE PROCESSAMENTO OTIMIZADAS ──────────────────
+
+@st.cache_data(ttl=600)
+def processar_rfm(_df_filtrado, update_trigger):
+    """Calcula RFM e Risco de forma vetorizada e rápida."""
+    hoje = pd.Timestamp.today().normalize()
+
+    # Agrupamento principal
+    rfm = _df_filtrado.groupby("CLIENTE").agg(
+        ultima_compra  =("DATA_DT", "max"),
+        total_pedidos  =("DATA_DT", "count"),
+        total_valor    =("Valor",    "sum"),
+        estado         =("Estado",  "first"),
+        cidade         =("Cidade",  "first")
+    ).reset_index()
+
+    rfm["recencia_dias"] = (hoje - rfm["ultima_compra"]).dt.days
+
+    # Cálculo do tempo médio entre pedidos (Vetorizado)
+    df_datas = _df_filtrado[['CLIENTE', 'DATA_DT']].drop_duplicates().sort_values(['CLIENTE', 'DATA_DT'])
+    df_datas['diff'] = df_datas.groupby('CLIENTE')['DATA_DT'].diff().dt.days
+    tempo_medio = df_datas.groupby('CLIENTE')['diff'].mean().reset_index()
+    tempo_medio.columns = ['CLIENTE', 'tempo_medio_dias']
+    
+    rfm = pd.merge(rfm, tempo_medio, on='CLIENTE', how='left')
+
+    # Lógica de Risco/Status
+    def definir_risco(r):
+        if r <= 30: return "Ativo"
+        elif r <= 90: return "Em Alerta"
+        else: return "Risco"
+    
+    rfm['risco'] = rfm['recencia_dias'].apply(definir_risco)
+    return rfm
+
+# ── CSS dos cards ─────────────────────────────────────────────
 st.markdown("""
 <style>
-/* Card de métrica — borda sutil para tema escuro */
 [data-testid="stMetric"] {
     background-color: rgba(255, 255, 255, 0.05) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 10px !important;
     padding: 12px 16px !important;
 }
-/* Label do card — texto menor e mais discreto */
-[data-testid="stMetricLabel"] {
-    font-size: 0.78rem !important;
-    opacity: 0.7 !important;
-}
-/* Valor do card — fonte menor para não estourar */
-[data-testid="stMetricValue"] {
-    font-size: 1.05rem !important;
-    font-weight: 700 !important;
-}
+[data-testid="stMetricLabel"] { font-size: 0.8rem !important; opacity: 0.7 !important; }
+[data-testid="stMetricValue"] { font-size: 1.1rem !important; font-weight: 700 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Sidebar: saudação APENAS aqui + logout ────────────────────
+nome_usuario = st.session_state.get("user_name", "Usuário")
+
+st.sidebar.markdown(f"### 👤 Bem-vindo, Sr. {nome_usuario}")
+
+if st.sidebar.button("Sair do Sistema"):
+    st.session_state["logged_in"] = False
+    st.session_state["user_name"] = ""
+    st.rerun()
 
 # ── 3. Funções utilitárias ───────────────────────────────────
 
@@ -450,7 +507,7 @@ elif pagina == "👥 Clientes":
         # GeoJSON oficial do Brasil — permite mapa coroplético com bordas dos estados
         geojson_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
         with urllib.request.urlopen(geojson_url) as response:
-            geojson_brasil = json_lib.loads(response.read().decode())
+            geojson_brasil = json.loads(response.read().decode())
 
         fig_mapa = px.choropleth(
             mapa_estados,
@@ -632,9 +689,9 @@ elif pagina == "📦 Produtos":
     prod_resumo["curva_abc"] = prod_resumo["participacao_acum"].apply(abc)
 
     mapa_cores = {
-        "A": "#2ecc71",
-        "B": "#f39c12",
-        "C": "#e74c3c"
+        "A": "#032757",
+        "B": "#6eb3eb",
+        "C": "#c8e3f8"
     }
 
     # 2. Métricas
