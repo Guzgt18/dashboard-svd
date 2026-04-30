@@ -174,7 +174,7 @@ def carregar_dados():
         creds = Credentials.from_service_account_info(json.loads(creds_env), scopes=SCOPES)
     else:
         creds = Credentials.from_service_account_file(
-            "dashpython-494416-dddeafb9a87e.json", scopes=SCOPES
+            "dashpython-494416-9b3188e05fdf", scopes=SCOPES
         )
 
     gc = gspread.authorize(creds)
