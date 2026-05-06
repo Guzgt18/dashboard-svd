@@ -562,8 +562,9 @@ def verificar_insumos(codigo: str, metros_necessarios: float, df_laminadoras: pd
 def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) -> pd.DataFrame:
     """
     Distribui produtos por laminadoras considerando:
-    - Produtos exclusivos têm prioridade
-    - Produtos com múltiplas máquinas são equilibrados
+    - Equilibrio de carga entre máquinas (prioridade)
+    - Agrupamento por linha para minimizar setup (secundário)
+    - Produtos exclusivos respeitam sua restrição
     - Preenche o dia completo (05:30-23:00)
     """
     # Agrupar produtos por código para ver opções de máquina
@@ -600,19 +601,19 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
         elif len(lams) > 1:
             flexiveis.append({**prod.to_dict(), "lams": lams, "opcoes": opcoes, "linha_produto": linha_prod})
 
-    # Ordenar exclusivos por linha e criticidade
-    exclusivos.sort(key=lambda x: (x["linha_produto"], -x["criticidade_total"]))
-    # Ordenar flexíveis por linha e criticidade
-    flexiveis.sort(key=lambda x: (x["linha_produto"], -x["criticidade_total"]))
+    # Ordenar ambos por criticidade (alta prioridade primeiro)
+    exclusivos.sort(key=lambda x: -x["criticidade_total"])
+    flexiveis.sort(key=lambda x: -x["criticidade_total"])
 
     # Capacidade das máquinas (05:30-23:00 = 17,5h produtivas por dia)
     CAPACIDADE_DIARIA_MIN = 17.5 * 60  # 1050 minutos
     carga_atual = {f"L{i}": 0 for i in range(1, 5)}  # L1-L4
     linha_atual = {f"L{i}": None for i in range(1, 5)}
+    produtos_por_maquina = {f"L{i}": 0 for i in range(1, 5)}  # Contar produtos
 
     distribuicao = []
 
-    # Alocar exclusivos primeiro
+    # ===== FASE 1: Alocar exclusivos =====
     for prod in exclusivos:
         lam = prod["lams"][0]
         if carga_atual[lam] < CAPACIDADE_DIARIA_MIN:
@@ -622,33 +623,53 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
             tempo_est = metros * opcao["min_por_metro"] + opcao["setup"]
             carga_atual[lam] += min(tempo_est, CAPACIDADE_DIARIA_MIN - carga_atual[lam])
             linha_atual[lam] = opcao["linha"]
+            produtos_por_maquina[lam] += 1
 
-    # Alocar flexíveis priorizando mesma linha/setup e depois menor carga
-    for prod in flexiveis:
-        metros = abs(prod["DIFERENCA_NUM"])
-        opcoes_ordenadas = sorted(
-            prod["opcoes"],
-            key=lambda o: (
-                0 if linha_atual[o["lam"]] == o["linha"] else 1,
-                carga_atual[o["lam"]],
-                o["setup"]
-            )
-        )
-
-        for opcao in opcoes_ordenadas:
-            lam = opcao["lam"]
-            if carga_atual[lam] >= CAPACIDADE_DIARIA_MIN:
-                continue
-
-            setup = opcao["setup"] if linha_atual[lam] != opcao["linha"] else 0
-            tempo_est = metros * opcao["min_por_metro"] + setup
-            if carga_atual[lam] + tempo_est > CAPACIDADE_DIARIA_MIN:
-                continue
-
-            distribuicao.append({**prod, "laminadora_alocada": lam})
-            carga_atual[lam] += tempo_est
-            linha_atual[lam] = opcao["linha"]
-            break
+    # ===== FASE 2: Alocar flexíveis com balanceamento =====
+    # Ordenar flexíveis não alocados para tomar decisões
+    nao_alocados = flexiveis.copy()
+    
+    while nao_alocados:
+        melhor_aloc = None
+        melhor_idx = -1
+        melhor_score = float('inf')
+        
+        for idx, prod in enumerate(nao_alocados):
+            metros = abs(prod["DIFERENCA_NUM"])
+            
+            # Para cada máquina que pode fabricar este produto
+            for opcao in prod["opcoes"]:
+                lam = opcao["lam"]
+                
+                # Verificar se cabe em capacidade
+                if carga_atual[lam] >= CAPACIDADE_DIARIA_MIN:
+                    continue
+                
+                setup = opcao["setup"] if linha_atual[lam] != opcao["linha"] else 0
+                tempo_est = metros * opcao["min_por_metro"] + setup
+                
+                if carga_atual[lam] + tempo_est > CAPACIDADE_DIARIA_MIN:
+                    continue
+                
+                # Score: prioriza máquinas com MENOR carga, depois mesma linha
+                carga_percentual = carga_atual[lam] / CAPACIDADE_DIARIA_MIN
+                mesma_linha = 0 if linha_atual[lam] == opcao["linha"] else 10
+                score = (carga_percentual, mesma_linha, -prod["criticidade_total"])
+                
+                if score < melhor_score:
+                    melhor_score = score
+                    melhor_aloc = (idx, prod, lam, opcao, tempo_est)
+                    melhor_idx = idx
+        
+        if melhor_aloc is None:
+            break  # Nenhum produto mais pode ser alocado
+        
+        idx, prod, lam, opcao, tempo_est = melhor_aloc
+        distribuicao.append({**prod, "laminadora_alocada": lam})
+        carga_atual[lam] += tempo_est
+        linha_atual[lam] = opcao["linha"]
+        produtos_por_maquina[lam] += 1
+        nao_alocados.pop(melhor_idx)
 
     return pd.DataFrame(distribuicao)
 
