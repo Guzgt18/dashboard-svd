@@ -12,6 +12,7 @@ import os
 import re
 import urllib.request
 from streamlit_autorefresh import st_autorefresh
+from mrp import render_mrp
 
 # ── 1. CONFIGURAÇÃO DA PÁGINA (Deve ser o primeiro comando Streamlit) ──
 st.set_page_config(
@@ -49,7 +50,7 @@ if not st.session_state.get("logged_in", False):
 
 @st.cache_data(ttl=600)
 def processar_rfm(_df_filtrado, update_trigger):
-    """Calcula RFM e Risco de forma vetorizada e rápida."""
+    
     hoje = pd.Timestamp.today().normalize()
 
     # Agrupamento principal
@@ -108,11 +109,7 @@ if st.sidebar.button("Sair do Sistema"):
 
 def fmt_valor(valor):
     """
-    Formata valores monetários de forma inteligente:
-    - Acima de 1 milhão → M (ex: R$ 393,1 M)
-    - Acima de 1 mil    → K (ex: R$ 744,5 K)
-    - Abaixo de 1 mil   → inteiro (ex: R$ 744)
-    Evita números enormes nos cards que dificultam a leitura.
+  
     """
     if valor >= 1_000_000:
         return f"R$ {valor/1_000_000:.1f} M".replace(".", ",")
@@ -123,25 +120,19 @@ def fmt_valor(valor):
 
 def fmt_rs(valor):
     """
-    Formata valor monetário completo no padrão brasileiro.
-    Usado em tabelas onde há espaço para o número inteiro.
-    Ex: 744.50 → R$ 744,50
+
     """
     return "R$ " + f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def fmt_br(valor):
     """
-    Formata número inteiro com ponto como separador de milhar.
-    Ex: 1234567 → 1.234.567
-    O Python usa vírgula como separador (:,) então substituímos por ponto.
+   
     """
     return f"{valor:,.0f}".replace(",", ".")
 
 def limpar_numero(valor):
     """
-    Converte qualquer formato de número para float puro.
-    Trata: prefixo R$, vírgula decimal BR, ponto milhar, espaços.
-    Sem essa função pd.to_numeric falharia retornando 0 silenciosamente.
+
     """
     if not valor or str(valor).strip() == "":
         return 0.0
@@ -217,7 +208,7 @@ def processar_rfm(_df_filtrado, update_trigger):
 
     rfm["recencia_dias"] = (hoje - rfm["ultima_compra"]).dt.days
 
-    # 2. Cálculo do tempo médio (Vetorizado)
+    # 2. Cálculo do tempo médio 
     df_datas = _df_filtrado[['CLIENTE', 'DATA_DT']].drop_duplicates().sort_values(['CLIENTE', 'DATA_DT'])
     df_datas['diff'] = df_datas.groupby('CLIENTE')['DATA_DT'].diff().dt.days
     tempo_medio = df_datas.groupby('CLIENTE')['diff'].mean().reset_index()
@@ -225,8 +216,6 @@ def processar_rfm(_df_filtrado, update_trigger):
     
     rfm = pd.merge(rfm, tempo_medio, on='CLIENTE', how='left')
 
-    # 3. REINSERINDO A LÓGICA DE RISCO (O que estava faltando!)
-    # Ajuste os dias (30, 90) conforme a sua regra de negócio anterior
     def calcular_risco(row):
         if row['recencia_dias'] <= 30:
             return "Ativo"
@@ -242,8 +231,8 @@ with st.spinner("Carregando dados..."):
     df_raw = carregar_dados()
 
 # ── 6. Sidebar — navegação ───────────────────────────────────
-st.sidebar.title("📊 SVD Dashboard")
-pagina = st.sidebar.radio("Navegar", ["🏠 Visão Geral", "👥 Clientes", "📦 Produtos"])
+st.sidebar.title("📊 GESTÃO ALLTAK")
+pagina = st.sidebar.radio("Navegar", ["🏠 Visão Geral", "👥 Clientes", "📦 Produtos", "🏭 MRP / Planejamento"])
 
 # ── 7. Filtros globais ───────────────────────────────────────
 st.sidebar.divider()
@@ -294,8 +283,7 @@ if cliente_sel:
     df = df[df["CLIENTE"].isin(cliente_sel)]
 
 # ── 10. Session state ────────────────────────────────────────
-# Persiste valores entre reruns. Sem ele as seleções nos gráficos
-# seriam perdidas a cada interação do usuário.
+
 for key in ["mes_selecionado", "cliente_selecionado", "produto_selecionado"]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -431,33 +419,29 @@ elif pagina == "👥 Clientes":
     hoje      = pd.Timestamp.today().normalize()
     mes_atual = hoje.strftime("%Y-%m")  
 
-    # AJUSTE: Usamos 'df' (que já está filtrado pela sidebar) em vez de df_raw
-    # Garantimos que apenas linhas com datas válidas sejam processadas
+
     df_valid = df[df["DATA_DT"].notna()].copy()
 
     if df_valid.empty:
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
     else:
-       # Criamos o gatilho (trigger) para o cache não travar com o volume de dados
-        # O '_' na função processar_rfm fará o Streamlit ignorar o peso do DataFrame
+
         trigger = f"{len(df_valid)}_{df_valid['Valor'].sum()}"
         
-        # Chamada da função ultra-rápida com Cache e Vetorização
+
         rfm = processar_rfm(df_valid, trigger)
 
-        # 2. Métricas de Cabeçalho (Exemplo de como usar os novos nomes de coluna)
+
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total de Clientes", fmt_br(len(rfm)))
         c2.metric("Faturamento Médio/Cli", fmt_valor(rfm['total_valor'].mean()))
         c3.metric("Recência Média", f"{int(rfm['recencia_dias'].mean())} dias")
         
-        # Usando a nova coluna vetorizada 'tempo_medio_dias'
+
         tempo_geral = rfm['tempo_medio_dias'].mean()
         c4.metric("Ciclo Médio Pedido", f"{int(tempo_geral) if pd.notna(tempo_geral) else 0} dias")
 
         st.divider()
-        # O restante do código de mapas e gráficos (mapa_estados, etc.) 
-        # já utiliza a variável 'df', então deve funcionar corretamente agora.
 
     # ── Mapa por estado ──────────────────────────────────────
     st.subheader("🗺️ Distribuição Regional por Estado")
@@ -504,7 +488,7 @@ elif pagina == "👥 Clientes":
     col_mapa = "Valor" if metrica_mapa == "Faturamento (R$)" else ("QTD" if metrica_mapa == "Volume (m)" else "Clientes")
 
     try:
-        # GeoJSON oficial do Brasil — permite mapa coroplético com bordas dos estados
+
         geojson_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
         with urllib.request.urlopen(geojson_url) as response:
             geojson_brasil = json.loads(response.read().decode())
@@ -515,11 +499,11 @@ elif pagina == "👥 Clientes":
             locations="Estado",
             featureidkey="properties.name",
             color=col_mapa,
-            color_continuous_scale=[[0,"#1a4f8a"],[0.5,"#4a90d9"],[1,"#a8d4f5"]],
+            color_continuous_scale=[[0,"#a1e9ff"],[0.5,"#2374ca"],[1,"#113047"]],
             scope="south america",
             title=f"Mapa — {metrica_mapa} por Estado",
         )
-        # Siglas posicionadas no centro de cada estado
+
         fig_mapa.add_scattergeo(
             lat=mapa_estados["lat"],
             lon=mapa_estados["lon"],
@@ -529,10 +513,7 @@ elif pagina == "👥 Clientes":
             showlegend=False,
             hoverinfo="skip"
         )
-        # Fundo transparente — herda a cor do dashboard
-        # showland=False remove qualquer fundo de terra
-        # showocean=False remove o fundo do oceano
-        # bgcolor="rgba(0,0,0,0)" torna o fundo do geo transparente
+
         fig_mapa.update_geos(
             showcountries=False,
             showland=False,
@@ -553,7 +534,7 @@ elif pagina == "👥 Clientes":
                 tickfont=dict(color="white"),
             ),
             margin=dict(l=0, r=0, t=40, b=0),
-            height=500
+            height=800
         )
 
     except Exception as e:
@@ -563,7 +544,7 @@ elif pagina == "👥 Clientes":
             lat="lat", lon="lon",
             size=col_mapa, color=col_mapa,
             hover_name="Estado",
-            color_continuous_scale=[[0,"#4a90d9"],[1,"#1a4f8a"]],
+            color_continuous_scale=[[0,"#052344"],[1,"#a0ccff"]],
             scope="south america",
             title=f"Mapa — {metrica_mapa} por Estado",
             size_max=60
@@ -619,7 +600,6 @@ elif pagina == "👥 Clientes":
     # ── Dispersão RFM ────────────────────────────────────────
     # Eixo X = recência (menor = melhor)
     # Eixo Y = tempo médio entre pedidos (menor = compra mais frequente)
-    # Tamanho = faturamento total — clientes ideais: canto inferior esquerdo
     st.subheader("🎯 Dispersão — Recência vs. Tempo Médio entre Pedidos")
     rfm_plot = rfm[rfm["tempo_medio_dias"].notna()].copy()
 
@@ -657,7 +637,7 @@ elif pagina == "👥 Clientes":
     st.divider()
 
 # ════════════════════════════════════════════════════════════
-# PÁGINA 3 — PRODUTOS (CORRIGIDA)
+# PÁGINA 3 — PRODUTOS 
 # ════════════════════════════════════════════════════════════
 elif pagina == "📦 Produtos":
 
@@ -680,7 +660,7 @@ elif pagina == "📦 Produtos":
         prod_resumo["participacao"] = 0
         prod_resumo["participacao_acum"] = 0
 
-    # Função ABC com ícones padronizados (🅲 ajustado)
+    # Função ABC 
     def abc(acum):
         if acum <= 80:   return "A"
         elif acum <= 95: return "B"
@@ -690,8 +670,8 @@ elif pagina == "📦 Produtos":
 
     mapa_cores = {
         "A": "#032757",
-        "B": "#6eb3eb",
-        "C": "#c8e3f8"
+        "B": "#e2ff63",
+        "C": "#ec4949"
     }
 
     # 2. Métricas
@@ -703,7 +683,7 @@ elif pagina == "📦 Produtos":
     
     st.divider()
 
-    # 3. Gráficos (Gráficos não sofrem com erro de ordenação de string)
+    # 3. Gráficos 
     col_a, col_b = st.columns(2)
     with col_a:
         fig_prod = px.bar(prod_resumo.head(20).sort_values("volume"), x="volume", y="DESCRIÇÃO",
@@ -717,7 +697,7 @@ elif pagina == "📦 Produtos":
                          template="plotly_dark", color="curva_abc", color_discrete_map=mapa_cores)
         st.plotly_chart(fig_abc, use_container_width=True)
 
-    # 4. TABELA CORRIGIDA (O segredo está no column_config)
+    # 4. TABELA 
     st.subheader("📋 Tabela de Produtos — Curva ABC (Metros)")
     
     abc_filtro = st.multiselect(
@@ -729,9 +709,6 @@ elif pagina == "📦 Produtos":
     tabela_display = prod_resumo.copy()
     if abc_filtro:
         tabela_display = tabela_display[tabela_display["curva_abc"].isin(abc_filtro)]
-
-    # IMPORTANTE: Não use fmt_rs aqui! Vamos usar o column_config do Streamlit
-    # para formatar visualmente sem estragar a lógica de ordenação do clique.
     
     st.dataframe(
         tabela_display[["DESCRIÇÃO", "curva_abc", "volume", "valor", "participacao", "participacao_acum"]],
@@ -746,3 +723,6 @@ elif pagina == "📦 Produtos":
         use_container_width=True,
         hide_index=True
     )
+    
+elif pagina == "🏭 MRP / Planejamento":
+    render_mrp()
