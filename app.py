@@ -1,5 +1,6 @@
 # ============================================================
 # DASHBOARD DE VENDAS SVD
+# v1.0.2 - Fixed distribution balancing
 # ============================================================
 
 import streamlit as st
