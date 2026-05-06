@@ -541,8 +541,8 @@ def verificar_insumos(codigo: str, metros_necessarios: float, df_laminadoras: pd
     adesivo_estoque_col = find_column(linhas, ["ESTOUE ADESIVO", "ESTOQUE ADESIVO"])
     if adesivo_cod_col and adesivo_estoque_col:
         consumo = calcular_consumo_adesivo(
-            parse_number(linha.get(find_column(linhas, ["CILINDRO_GM2", "CILINDRO", "CILINDRO:"])), 0),
-            parse_number(linha.get(find_column(linhas, ["LARGURA"])), 0),
+            parse_number(linha.get(find_column(linhas, ["CILINDRO_GM2", "CILINDRO", "CILINDRO:"]))),
+            parse_number(linha.get(find_column(linhas, ["LARGURA"]))),
             metros_necessarios,
         )
         estoque_adesivo = parse_number(linha.get(adesivo_estoque_col, 0))
