@@ -517,15 +517,17 @@ def verificar_insumos(codigo: str, metros_necessarios: float, df_laminadoras: pd
     if linhas.empty:
         return "🔴 Produto não mapeado no centro de trabalho"
 
+    # Selecionar a linha com melhor velocidade (maior eficiência)
     velocidade_col = find_column(linhas, ["METROS_POR_MINUTO", "VELOCIDADE"])
-    if not velocidade_col:
-        return "🔴 Sem velocidade cadastrada"
+    if velocidade_col:
+        linhas = linhas[linhas[velocidade_col].apply(parse_number) > 0]
+        if not linhas.empty:
+            linhas = linhas.sort_values(velocidade_col, ascending=False).head(1)
 
-    linhas = linhas[linhas[velocidade_col].apply(parse_number) > 0]
     if linhas.empty:
-        return "🔴 Sem velocidade cadastrada"
+        return "🔴 Produto não pode ser fabricado (sem velocidade cadastrada)"
 
-    linha = linhas.sort_values(velocidade_col, ascending=False).iloc[0]
+    linha = linhas.iloc[0]
     faltas = []
 
     papel_cod_col = find_column(linhas, ["CÓDIGO PAPEL SILICONADO", "CODIGO PAPEL SILICONADO"])
@@ -570,6 +572,8 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
         cod = str(row.get("CODIGO", "")).strip()
         lam = str(row.get("LAMINADORA", "")).strip()
         if cod and lam:
+            velocidade = parse_number(row.get("METROS_POR_MINUTO", row.get("VELOCIDADE", 0)))
+            min_por_metro = 1 / velocidade if velocidade > 0 else 0
             if cod not in prod_opcoes:
                 prod_opcoes[cod] = []
             prod_opcoes[cod].append({
@@ -578,7 +582,7 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
                 "largura": parse_number(row.get("LARGURA", 1.02)),
                 "processo": str(row.get("PROCESSO", "")).strip(),
                 "cilindro": parse_number(row.get("CILINDRO:", 20)),
-                "min_por_metro": parse_number(row.get("MINUTOS_POR_METRO", 0.01333)),
+                "min_por_metro": min_por_metro,
                 "setup": parse_number(row.get("SETUP", 50)),
                 "troca": parse_number(row.get("TROCA_DE_BOBINA_MAE", 13)),
             })
@@ -590,14 +594,16 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
         cod = prod["CODIGO"]
         opcoes = prod_opcoes.get(cod, [])
         lams = list(set(o["lam"] for o in opcoes))
+        linha_prod = opcoes[0]["linha"] if opcoes else ""
         if len(lams) == 1:
-            exclusivos.append({**prod.to_dict(), "lams": lams, "opcoes": opcoes})
+            exclusivos.append({**prod.to_dict(), "lams": lams, "opcoes": opcoes, "linha_produto": linha_prod})
         elif len(lams) > 1:
-            flexiveis.append({**prod.to_dict(), "lams": lams, "opcoes": opcoes})
+            flexiveis.append({**prod.to_dict(), "lams": lams, "opcoes": opcoes, "linha_produto": linha_prod})
 
-    # Ordenar por criticidade
-    exclusivos.sort(key=lambda x: x["criticidade_total"], reverse=True)
-    flexiveis.sort(key=lambda x: x["criticidade_total"], reverse=True)
+    # Ordenar exclusivos por linha e criticidade
+    exclusivos.sort(key=lambda x: (x["linha_produto"], -x["criticidade_total"]))
+    # Ordenar flexíveis por linha e criticidade
+    flexiveis.sort(key=lambda x: (x["linha_produto"], -x["criticidade_total"]))
 
     # Capacidade das máquinas (05:30-23:00 = 17,5h produtivas por dia)
     CAPACIDADE_DIARIA_MIN = 17.5 * 60  # 1050 minutos
