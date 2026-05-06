@@ -1,0 +1,10 @@
+Dashboard SVD - MRP/PCP System
+Version: 1.0.2
+Date: 2026-05-06
+Status: Distribution balancing fixed - all machines load balanced
+
+Recent fixes:
+- Fixed TypeError in distribution scoring (tuple comparison)
+- Optimized product distribution across machines (L1-L4)
+- Velocity treated as efficiency indicator, not supply
+- Minimize setup time while balancing load
