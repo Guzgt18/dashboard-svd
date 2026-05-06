@@ -669,7 +669,7 @@ elif pagina == "📦 Produtos":
     prod_resumo["curva_abc"] = prod_resumo["participacao_acum"].apply(abc)
 
     mapa_cores = {
-        "A": "#032757",
+        "A": "#4975AD",
         "B": "#e2ff63",
         "C": "#ec4949"
     }

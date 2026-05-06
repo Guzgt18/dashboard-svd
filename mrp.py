@@ -599,9 +599,10 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
     exclusivos.sort(key=lambda x: x["criticidade_total"], reverse=True)
     flexiveis.sort(key=lambda x: x["criticidade_total"], reverse=True)
 
-    # Capacidade das máquinas (17h produtivas por dia)
-    CAPACIDADE_DIARIA_MIN = 17 * 60  # 1020 minutos
+    # Capacidade das máquinas (05:30-23:00 = 17,5h produtivas por dia)
+    CAPACIDADE_DIARIA_MIN = 17.5 * 60  # 1050 minutos
     carga_atual = {f"L{i}": 0 for i in range(1, 5)}  # L1-L4
+    linha_atual = {f"L{i}": None for i in range(1, 5)}
 
     distribuicao = []
 
@@ -609,22 +610,39 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
     for prod in exclusivos:
         lam = prod["lams"][0]
         if carga_atual[lam] < CAPACIDADE_DIARIA_MIN:
+            opcao = prod["opcoes"][0]
             distribuicao.append({**prod, "laminadora_alocada": lam})
-            # Estimar tempo (simplificado)
-            metros = abs(prod["DIFERENCA_NUM"])
-            tempo_est = metros * prod["opcoes"][0]["min_por_metro"] + prod["opcoes"][0]["setup"]
-            carga_atual[lam] += min(tempo_est, CAPACIDADE_DIARIA_MIN - carga_atual[lam])
-
-    # Alocar flexíveis equilibradamente
-    for prod in flexiveis:
-        # Escolher máquina com menor carga
-        lam_menor_carga = min(prod["lams"], key=lambda l: carga_atual[l])
-        if carga_atual[lam_menor_carga] < CAPACIDADE_DIARIA_MIN:
-            opcao = next(o for o in prod["opcoes"] if o["lam"] == lam_menor_carga)
-            distribuicao.append({**prod, "laminadora_alocada": lam_menor_carga})
             metros = abs(prod["DIFERENCA_NUM"])
             tempo_est = metros * opcao["min_por_metro"] + opcao["setup"]
-            carga_atual[lam_menor_carga] += min(tempo_est, CAPACIDADE_DIARIA_MIN - carga_atual[lam_menor_carga])
+            carga_atual[lam] += min(tempo_est, CAPACIDADE_DIARIA_MIN - carga_atual[lam])
+            linha_atual[lam] = opcao["linha"]
+
+    # Alocar flexíveis priorizando mesma linha/setup e depois menor carga
+    for prod in flexiveis:
+        metros = abs(prod["DIFERENCA_NUM"])
+        opcoes_ordenadas = sorted(
+            prod["opcoes"],
+            key=lambda o: (
+                0 if linha_atual[o["lam"]] == o["linha"] else 1,
+                carga_atual[o["lam"]],
+                o["setup"]
+            )
+        )
+
+        for opcao in opcoes_ordenadas:
+            lam = opcao["lam"]
+            if carga_atual[lam] >= CAPACIDADE_DIARIA_MIN:
+                continue
+
+            setup = opcao["setup"] if linha_atual[lam] != opcao["linha"] else 0
+            tempo_est = metros * opcao["min_por_metro"] + setup
+            if carga_atual[lam] + tempo_est > CAPACIDADE_DIARIA_MIN:
+                continue
+
+            distribuicao.append({**prod, "laminadora_alocada": lam})
+            carga_atual[lam] += tempo_est
+            linha_atual[lam] = opcao["linha"]
+            break
 
     return pd.DataFrame(distribuicao)
 
@@ -642,12 +660,30 @@ def gerar_ordens_producao(df_distribuido: pd.DataFrame) -> pd.DataFrame:
     cursor_por_maquina = {f"L{i}": 5.5 for i in range(1, 5)}  # Início em 05:30
     linha_atual = {f"L{i}": None for i in range(1, 5)}
 
+    def ordenar_por_linha_e_criticidade(df_lam):
+        filas = df_lam.to_dict("records")
+        ordered = []
+        current_line = None
+
+        while filas:
+            same_line = [r for r in filas if r["opcoes"][0].get("linha", "") == current_line] if current_line else []
+            if same_line:
+                escolha = max(same_line, key=lambda r: r["criticidade_total"])
+            else:
+                escolha = max(filas, key=lambda r: r["criticidade_total"])
+
+            ordered.append(escolha)
+            filas.remove(escolha)
+            current_line = escolha["opcoes"][0].get("linha", "")
+
+        return ordered
+
     for lam in sorted(df_distribuido["laminadora_alocada"].unique()):
         df_lam = df_distribuido[df_distribuido["laminadora_alocada"] == lam].copy()
-        df_lam = df_lam.sort_values("criticidade_total", ascending=False)  # Sequência por criticidade
+        ordered_prods = ordenar_por_linha_e_criticidade(df_lam)
 
-        for _, prod in df_lam.iterrows():
-            opcao = prod["opcoes"][0]  # Usar primeira opção (já filtrada)
+        for prod in ordered_prods:
+            opcao = prod["opcoes"][0]
             linha = opcao["linha"]
             setup = opcao["setup"] if linha != linha_atual[lam] else 0
             linha_atual[lam] = linha
@@ -657,9 +693,11 @@ def gerar_ordens_producao(df_distribuido: pd.DataFrame) -> pd.DataFrame:
             tempo_total = tempo_prod + setup
 
             inicio = cursor_por_maquina[lam]
-            fim = inicio + tempo_total / 60  # Converter para horas
+            fim = inicio + tempo_total / 60
 
-            # Determinar turno
+            if inicio >= 23.0 or fim > 23.0:
+                continue
+
             if inicio < 14.5:
                 turno = "🌅 1º Turno" if fim <= 14.5 else "🌅→🌆 1º e 2º Turno"
             else:
