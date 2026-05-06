@@ -727,3 +727,4 @@ elif pagina == "📦 Produtos":
     
 elif pagina == "🏭 MRP / Planejamento":
     render_mrp()
+    # Fresh deploy - v1.0.2 - Distribution fix 2026-05-06 15:45
