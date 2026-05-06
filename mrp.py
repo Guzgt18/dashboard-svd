@@ -632,7 +632,7 @@ def distribuir_por_maquinas(df_producao: pd.DataFrame, df_prod: pd.DataFrame) ->
     while nao_alocados:
         melhor_aloc = None
         melhor_idx = -1
-        melhor_score = float('inf')
+        melhor_score = (float('inf'), float('inf'), float('inf'))
         
         for idx, prod in enumerate(nao_alocados):
             metros = abs(prod["DIFERENCA_NUM"])
