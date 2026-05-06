@@ -347,7 +347,7 @@ if pagina == "🏠 Visão Geral":
                           title="Evolução do Faturamento por Mês",
                           markers=True, template="plotly_dark")
         fig_val.update_yaxes(tickprefix="R$ ", tickformat=",.0f")
-        fig_val.update_traces(marker=dict(size=10), line=dict(width=2, color="#2ecc71"))
+        fig_val.update_traces(marker=dict(size=10), line=dict(width=2, color="#1A3C97"))
         sel_val = st.plotly_chart(fig_val, use_container_width=True,
                                   on_select="rerun", selection_mode=["points"])
         if sel_val and sel_val.get("selection") and sel_val["selection"].get("points"):
@@ -535,7 +535,7 @@ elif pagina == "👥 Clientes":
                 tickfont=dict(color="white"),
             ),
             margin=dict(l=0, r=0, t=40, b=0),
-            height=800
+            height=1000
         )
 
     except Exception as e:
