@@ -231,7 +231,7 @@ with st.spinner("Carregando dados..."):
     df_raw = carregar_dados()
 
 # ── 6. Sidebar — navegação ───────────────────────────────────
-st.sidebar.title("📊 GESTÃO ALLTAK")
+st.sidebar.title("📊 Gestão Alltak")
 pagina = st.sidebar.radio("Navegar", ["🏠 Visão Geral", "👥 Clientes", "📦 Produtos", "🏭 MRP / Planejamento"])
 
 # ── 7. Filtros globais ───────────────────────────────────────
